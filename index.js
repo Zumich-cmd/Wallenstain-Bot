@@ -1,70 +1,74 @@
 import { Client, GatewayIntentBits } from "discord.js";
 import fetch from "node-fetch";
+import "dotenv/config";
 
-const {
-  DISCORD_TOKEN,
-  TELEGRAM_TOKEN,
-  TELEGRAM_CHAT_ID,
-  DISCORD_CHANNEL_ID
-} = process.env;
-
+// ─── DISCORD ────────────────────────────────────────────────────────────────
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
+    GatewayIntentBits.MessageContent // ⚠️ ДОЛЖЕН БЫТЬ ВКЛЮЧЁН В DEV PORTAL
   ]
 });
 
-function cleanText(text) {
-  return text
-    .replace(/@everyone/g, "")
-    .replace(/@here/g, "")
+// ─── TELEGRAM ────────────────────────────────────────────────────────────────
+const TG_API = `https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}`;
+
+// ─── ОТПРАВКА В TELEGRAM ─────────────────────────────────────────────────────
+async function sendToTelegram(message) {
+  const text = message.content
+    .replace(/@everyone|@here/g, "")
     .trim();
+
+  const attachment = message.attachments.first();
+  const imageUrl = attachment?.contentType?.startsWith("image/")
+    ? attachment.url
+    : null;
+
+  // 🖼 Фото + текст
+  if (imageUrl) {
+    await fetch(`${TG_API}/sendPhoto`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: process.env.TELEGRAM_CHAT_ID,
+        photo: imageUrl,
+        caption: text || undefined,
+        parse_mode: "HTML"
+      })
+    });
+    return;
+  }
+
+  // 📝 Только текст
+  if (text) {
+    await fetch(`${TG_API}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: process.env.TELEGRAM_CHAT_ID,
+        text,
+        parse_mode: "HTML"
+      })
+    });
+  }
 }
 
-async function sendTelegramMessage(text) {
-  await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      chat_id: TELEGRAM_CHAT_ID,
-      text,
-      disable_web_page_preview: false
-    })
-  });
-}
+// ─── ОБРАБОТКА СООБЩЕНИЙ DISCORD ─────────────────────────────────────────────
+client.on("messageCreate", async (message) => {
+  if (message.author.bot) return;
+  if (message.channelId !== process.env.DISCORD_CHANNEL_ID) return;
 
-async function sendTelegramPhoto(url) {
-  await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendPhoto`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      chat_id: TELEGRAM_CHAT_ID,
-      photo: url
-    })
-  });
-}
+  try {
+    await sendToTelegram(message);
+  } catch (err) {
+    console.error("Ошибка отправки в Telegram:", err);
+  }
+});
 
-client.on("ready", () => {
+// ─── ЗАПУСК ─────────────────────────────────────────────────────────────────
+client.once("ready", () => {
   console.log(`✅ Бот запущен как ${client.user.tag}`);
 });
 
-client.on("messageCreate", async (message) => {
-  if (message.author.bot) return;
-  if (message.channel.id !== DISCORD_CHANNEL_ID) return;
-
-  const text = cleanText(message.content);
-
-  if (text) {
-    await sendTelegramMessage(text);
-  }
-
-  for (const attachment of message.attachments.values()) {
-    if (attachment.contentType?.startsWith("image")) {
-      await sendTelegramPhoto(attachment.url);
-    }
-  }
-});
-
-client.login(DISCORD_TOKEN);
+client.login(process.env.DISCORD_TOKEN);
