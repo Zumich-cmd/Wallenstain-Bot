@@ -1,31 +1,30 @@
 import { Client, GatewayIntentBits } from "discord.js";
 import fetch from "node-fetch";
-import "dotenv/config";
 
 // ─── DISCORD ────────────────────────────────────────────────────────────────
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent // ⚠️ ДОЛЖЕН БЫТЬ ВКЛЮЧЁН В DEV PORTAL
+    GatewayIntentBits.MessageContent
   ]
 });
 
 // ─── TELEGRAM ────────────────────────────────────────────────────────────────
 const TG_API = `https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}`;
 
-// ─── ОТПРАВКА В TELEGRAM ─────────────────────────────────────────────────────
 async function sendToTelegram(message) {
   const text = message.content
     .replace(/@everyone|@here/g, "")
     .trim();
 
   const attachment = message.attachments.first();
-  const imageUrl = attachment?.contentType?.startsWith("image/")
-    ? attachment.url
-    : null;
+  const imageUrl =
+    attachment && attachment.contentType?.startsWith("image/")
+      ? attachment.url
+      : null;
 
-  // 🖼 Фото + текст
+  // 🖼 Картинка + текст
   if (imageUrl) {
     await fetch(`${TG_API}/sendPhoto`, {
       method: "POST",
@@ -33,8 +32,7 @@ async function sendToTelegram(message) {
       body: JSON.stringify({
         chat_id: process.env.TELEGRAM_CHAT_ID,
         photo: imageUrl,
-        caption: text || undefined,
-        parse_mode: "HTML"
+        caption: text || undefined
       })
     });
     return;
@@ -47,28 +45,25 @@ async function sendToTelegram(message) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         chat_id: process.env.TELEGRAM_CHAT_ID,
-        text,
-        parse_mode: "HTML"
+        text
       })
     });
   }
 }
 
-// ─── ОБРАБОТКА СООБЩЕНИЙ DISCORD ─────────────────────────────────────────────
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
   if (message.channelId !== process.env.DISCORD_CHANNEL_ID) return;
 
   try {
     await sendToTelegram(message);
-  } catch (err) {
-    console.error("Ошибка отправки в Telegram:", err);
+  } catch (e) {
+    console.error("Telegram error:", e);
   }
 });
 
-// ─── ЗАПУСК ─────────────────────────────────────────────────────────────────
 client.once("ready", () => {
-  console.log(`✅ Бот запущен как ${client.user.tag}`);
+  console.log(`✅ Logged in as ${client.user.tag}`);
 });
 
 client.login(process.env.DISCORD_TOKEN);
