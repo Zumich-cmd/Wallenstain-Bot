@@ -13,44 +13,42 @@ const client = new Client({
 // ───────────── TELEGRAM ─────────────
 const TG_API = `https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}`;
 const TG_CHAT = process.env.TELEGRAM_CHAT_ID;
-const DISCORD_CHANNEL = process.env.DISCORD_CHANNEL_ID;
+const CHANNEL_ID = process.env.DISCORD_CHANNEL_ID;
 
-// ───────────── MARKDOWN ESCAPE ─────────────
-function escapeMarkdown(text = "") {
+// ───────────── MARKDOWN ─────────────
+function escapeTG(text = "") {
   return text.replace(/[_*[\]()~`>#+\-=|{}.!]/g, "\\$&");
+}
+
+// Discord → Telegram
+function convertMarkdown(text) {
+  return escapeTG(text)
+    .replace(/\\\*\\\*(.*?)\\\*\\\*/g, "*$1*") // **bold**
+    .replace(/\\\[(.*?)\\\]\\\((.*?)\\\)/g, "[$1]($2)"); // links
 }
 
 // ───────────── SEND ─────────────
 async function sendToTelegram(message) {
-  let imageUrl = null;
+  if (!message.embeds.length) return;
+
+  const embed = message.embeds[0];
   let text = "";
+  let image = embed.image?.url || message.attachments.first()?.url;
 
-  // 🧠 EMBED
-  if (message.embeds.length > 0) {
-    const e = message.embeds[0];
-
-    if (e.image?.url) imageUrl = e.image.url;
-
-    text =
-      `🔔 *ВЫШЛА НОВАЯ ГЛАВА\\!*\n\n` +
-      `📚 *Тайтл:* ${escapeMarkdown(e.title || "Без названия")}\n` +
-      `📄 *Глава:* 1\n\n` +
-      `👀 *ЧИТАТЬ:*\n` +
-      `🔗 [MangaLib](https://mangalib.me)\n` +
-      `🔗 [Teletype](https://teletype.in)\n\n` +
-      `✈️ *Следите за нами:*\n` +
-      `🔹 [Telegram](https://t.me/wallenstainproject)\n` +
-      `🔹 [Discord](https://discord.gg/a64Ceb5A)`;
+  if (embed.description) {
+    text = convertMarkdown(embed.description.replace(/@everyone|@here/g, ""));
   }
 
-  // 🖼 IMAGE
-  if (imageUrl) {
+  if (!text && !image) return;
+
+  // 🖼 Фото + текст
+  if (image) {
     await fetch(`${TG_API}/sendPhoto`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         chat_id: TG_CHAT,
-        photo: imageUrl,
+        photo: image,
         caption: text,
         parse_mode: "MarkdownV2"
       })
@@ -58,28 +56,26 @@ async function sendToTelegram(message) {
     return;
   }
 
-  // 📝 TEXT ONLY
-  if (text) {
-    await fetch(`${TG_API}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: TG_CHAT,
-        text,
-        parse_mode: "MarkdownV2"
-      })
-    });
-  }
+  // 📝 Только текст
+  await fetch(`${TG_API}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chat_id: TG_CHAT,
+      text,
+      parse_mode: "MarkdownV2"
+    })
+  });
 }
 
 // ───────────── EVENTS ─────────────
 client.on("messageCreate", async (message) => {
-  if (message.channelId !== DISCORD_CHANNEL) return;
+  if (message.channelId !== CHANNEL_ID) return;
 
   try {
     await sendToTelegram(message);
   } catch (e) {
-    console.error("TG ERROR:", e);
+    console.error("Telegram error:", e);
   }
 });
 
