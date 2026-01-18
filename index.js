@@ -1,7 +1,7 @@
 import { Client, GatewayIntentBits } from "discord.js";
 import fetch from "node-fetch";
 
-// ─── DISCORD ────────────────────────────────────────────────────────────────
+// ───────────────── DISCORD ─────────────────
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -10,55 +10,90 @@ const client = new Client({
   ]
 });
 
-// ─── TELEGRAM ────────────────────────────────────────────────────────────────
+// ───────────────── TELEGRAM ─────────────────
 const TG_API = `https://api.telegram.org/bot${process.env.TELEGRAM_TOKEN}`;
+const TG_CHAT = process.env.TELEGRAM_CHAT_ID;
+const DISCORD_CHANNEL = process.env.DISCORD_CHANNEL_ID;
 
+// ───────────────── UTILS ─────────────────
 async function sendToTelegram(message) {
-  const text = message.content
+  // 🟢 1. ТЕКСТ (берём из embed ИЛИ обычного текста)
+  let text = "";
+
+  if (message.embeds.length > 0) {
+    const embed = message.embeds[0];
+
+    if (embed.title) text += `${embed.title}\n\n`;
+    if (embed.description) text += embed.description;
+  } else {
+    text = message.content;
+  }
+
+  text = text
     .replace(/@everyone|@here/g, "")
     .trim();
 
-  const attachment = message.attachments.first();
-  const imageUrl =
-    attachment && attachment.contentType?.startsWith("image/")
-      ? attachment.url
-      : null;
+  // 🟢 2. КАРТИНКА
+  let imageUrl = null;
 
-  // 🖼 Картинка + текст
-  if (imageUrl) {
-    await fetch(`${TG_API}/sendPhoto`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: process.env.TELEGRAM_CHAT_ID,
-        photo: imageUrl,
-        caption: text || undefined
-      })
-    });
-    return;
+  // из embed
+  if (message.embeds[0]?.image?.url) {
+    imageUrl = message.embeds[0].image.url;
   }
 
-  // 📝 Только текст
-  if (text) {
-    await fetch(`${TG_API}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: process.env.TELEGRAM_CHAT_ID,
-        text
-      })
-    });
+  // или из attachment
+  if (!imageUrl) {
+    const attachment = message.attachments.first();
+    if (attachment && attachment.contentType?.startsWith("image/")) {
+      imageUrl = attachment.url;
+    }
+  }
+
+  // ─────── ОТПРАВКА В TELEGRAM ───────
+  try {
+    if (imageUrl) {
+      const res = await fetch(`${TG_API}/sendPhoto`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: TG_CHAT,
+          photo: imageUrl,
+          caption: text || undefined
+        })
+      });
+
+      const data = await res.json();
+      console.log("TG PHOTO:", data);
+      return;
+    }
+
+    if (text) {
+      const res = await fetch(`${TG_API}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: TG_CHAT,
+          text
+        })
+      });
+
+      const data = await res.json();
+      console.log("TG TEXT:", data);
+    }
+  } catch (err) {
+    console.error("❌ Telegram error:", err);
   }
 }
 
+// ───────────────── EVENTS ─────────────────
 client.on("messageCreate", async (message) => {
-  if (message.author.bot) return;
-  if (message.channelId !== process.env.DISCORD_CHANNEL_ID) return;
+  // ❗ НЕ ОТФИЛЬТРОВЫВАЕМ webhook
+  if (message.channelId !== DISCORD_CHANNEL) return;
 
   try {
     await sendToTelegram(message);
   } catch (e) {
-    console.error("Telegram error:", e);
+    console.error("Send error:", e);
   }
 });
 
